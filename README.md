@@ -27,7 +27,9 @@ their own phone or laptop over a live connection.
    resets scores.
 
 **Extras:** an exact guess (0 off) sets off **fireworks**, and a live **chat**
-sidebar runs alongside the game the whole time.
+sidebar runs alongside the game the whole time. Chat uses its own lightweight
+socket events (`chatMessage` / `chatHistory`) rather than riding on game-state
+updates, so it keeps a large backlog (up to 1000 messages, 500 chars each) cheaply.
 
 ### Scoring (individual — no teams)
 

@@ -11,7 +11,7 @@ const state = {
   data: null,
   lockedTurn: null,
   renderedTurn: null,
-  chatCount: 0,
+  messages: [],
   firedTurn: null,
 };
 
@@ -123,18 +123,25 @@ function sendChat() {
   socket.emit("chat", { text });
   $("chat-input").value = "";
 }
-function renderChat(messages) {
+function appendChatMessage(m) {
   const list = $("chat-messages");
-  if (messages.length === state.chatCount) return;
-  list.innerHTML = messages
-    .map((m) => {
-      const mine = m.id === state.me;
-      return `<div class="cmsg ${mine ? "mine" : ""}"><span class="cname">${escapeHtml(m.name)}</span><span class="ctext">${escapeHtml(m.text)}</span></div>`;
-    })
-    .join("");
-  state.chatCount = messages.length;
+  const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+  const div = document.createElement("div");
+  div.className = "cmsg" + (m.id === state.me ? " mine" : "");
+  div.innerHTML = `<span class="cname">${escapeHtml(m.name)}</span><span class="ctext">${escapeHtml(m.text)}</span>`;
+  list.appendChild(div);
+  if (atBottom) list.scrollTop = list.scrollHeight; // don't yank if scrolled up
+}
+function renderChatFull() {
+  $("chat-messages").innerHTML = "";
+  state.messages.forEach(appendChatMessage);
+  const list = $("chat-messages");
   list.scrollTop = list.scrollHeight;
 }
+
+// Chat arrives on its own events, separate from game state.
+socket.on("chatHistory", (msgs) => { state.messages = Array.isArray(msgs) ? msgs.slice() : []; renderChatFull(); });
+socket.on("chatMessage", (m) => { state.messages.push(m); appendChatMessage(m); });
 
 /* ---- State pump ------------------------------------------------------- */
 socket.on("state", (data) => { state.data = data; if (state.joined) render(); });
@@ -143,7 +150,6 @@ function render() {
   const d = state.data;
   if (!d) return;
   $("chat").classList.remove("hidden");
-  renderChat(d.messages || []);
   if (d.phase === "lobby") return renderLobby(d);
   if (d.phase === "compose") return renderCompose(d);
   if (d.phase === "guess") return renderGuess(d);

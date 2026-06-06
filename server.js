@@ -20,6 +20,8 @@ const SCALE_MIN = 1;
 const SCALE_MAX = 20;
 const MAX_ROUNDS = 10;
 const MAX_PLAYERS = 10;
+const MAX_MESSAGES = 1000; // chat history kept per room (sent once on join)
+const MAX_MSG_LEN = 500;   // per-message character limit
 
 /** @type {Map<string, any>} */
 const rooms = new Map();
@@ -104,7 +106,6 @@ function publicState(room, viewerId) {
     scaleMax: SCALE_MAX,
     spectrum: room.spectrum || null,
     players,
-    messages: room.messages || [],
   };
 
   if (!room.round) return base;
@@ -204,6 +205,7 @@ io.on("connection", (socket) => {
     rooms.set(code, room);
     socket.join(code);
     cb && cb({ ok: true, code, you: socket.id });
+    socket.emit("chatHistory", room.messages);
     broadcast(room);
   });
 
@@ -220,6 +222,7 @@ io.on("connection", (socket) => {
     }
     socket.join(code);
     cb && cb({ ok: true, code, you: socket.id });
+    socket.emit("chatHistory", room.messages);
     broadcast(room);
   });
 
@@ -303,16 +306,19 @@ io.on("connection", (socket) => {
     startTurn(room);
   });
 
+  // Chat is its own lightweight event — not bundled into game-state broadcasts.
+  // Only the single new message goes out; history is sent once on join.
   socket.on("chat", ({ text }) => {
     const room = findRoomBySocket(socket.id);
     if (!room) return;
     const player = room.players[socket.id];
     if (!player) return;
-    const clean = (text || "").toString().slice(0, 200).trim();
+    const clean = (text || "").toString().slice(0, MAX_MSG_LEN).trim();
     if (!clean) return;
-    room.messages.push({ id: socket.id, name: player.name, text: clean, ts: Date.now() });
-    if (room.messages.length > 80) room.messages.shift();
-    broadcast(room);
+    const msg = { id: socket.id, name: player.name, text: clean, ts: Date.now() };
+    room.messages.push(msg);
+    if (room.messages.length > MAX_MESSAGES) room.messages.shift();
+    io.to(room.code).emit("chatMessage", msg);
   });
 
   socket.on("newGame", () => {

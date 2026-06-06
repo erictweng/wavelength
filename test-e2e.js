@@ -37,7 +37,12 @@ const expectedScore = (t, g) => {
   const socks = [io(URL), io(URL), io(URL)];
   await Promise.all(socks.map((s) => once(s, "connect")));
   const st = [null, null, null];
-  socks.forEach((s, i) => s.on("state", (x) => (st[i] = x)));
+  const chat = [[], [], []]; // chat now arrives on its own events, not in state
+  socks.forEach((s, i) => {
+    s.on("state", (x) => (st[i] = x));
+    s.on("chatHistory", (msgs) => (chat[i] = msgs.slice()));
+    s.on("chatMessage", (m) => chat[i].push(m));
+  });
   const names = ["Alice", "Bob", "Cara"];
 
   const created = await new Promise((r) => socks[0].emit("createRoom", { name: names[0] }, r));
@@ -131,12 +136,14 @@ const expectedScore = (t, g) => {
   const sorted = st[0].players.slice().sort((a, b) => b.score - a.score);
   console.log("Final standings:", sorted.map((p) => `${p.name}:${p.score}`).join(", "), "✓");
 
-  // Chat still works.
-  socks[1].emit("chat", { text: "ggs" });
+  // Chat now flows via dedicated events; a long message (> old 200 cap) is fine.
+  const longMsg = "g".repeat(300);
+  socks[1].emit("chat", { text: longMsg });
   await sleep(120);
-  assert.strictEqual(st[2].messages.at(-1).text, "ggs");
-  assert.strictEqual(st[2].messages.at(-1).name, "Bob");
-  console.log("Chat broadcast ✓");
+  assert.strictEqual(chat[2].at(-1).text, longMsg, "long message should pass (raised limit)");
+  assert.strictEqual(chat[2].at(-1).name, "Bob");
+  assert.strictEqual(st[2].messages, undefined, "chat should NOT be bundled in game state");
+  console.log("Chat via dedicated event ✓ (300-char message delivered, not in state)");
 
   // Play again resets to lobby with zeroed scores.
   socks[0].emit("newGame");
