@@ -19,6 +19,7 @@ app.use(express.static(path.join(__dirname, "public")));
 const SCALE_MIN = 1;
 const SCALE_MAX = 20;
 const MAX_ROUNDS = 10;
+const MAX_PLAYERS = 10;
 
 /** @type {Map<string, any>} */
 const rooms = new Map();
@@ -212,6 +213,8 @@ io.on("connection", (socket) => {
     if (!room) return cb && cb({ ok: false, error: "Room not found." });
     const cleanName = (name || "Player").toString().slice(0, 20).trim() || "Player";
     if (!room.players[socket.id]) {
+      if (connectedPlayers(room).length >= MAX_PLAYERS)
+        return cb && cb({ ok: false, error: `Room is full (${MAX_PLAYERS} players max).` });
       room.players[socket.id] = { id: socket.id, name: cleanName, connected: true, score: 0 };
       room.order.push(socket.id);
     }
@@ -272,10 +275,12 @@ io.on("connection", (socket) => {
     maybeReveal(room);
   });
 
-  // Current clue-giver clears the spectrum so the next clue-giver writes a new one.
+  // Clear the spectrum so a fresh one gets written. The current clue-giver can do
+  // this during their own compose turn (if stuck) or on the reveal screen (for
+  // the next clue-giver). Either way it just unsets the spectrum.
   socket.on("changeSpectrum", () => {
     const room = findRoomBySocket(socket.id);
-    if (!room || room.phase !== "reveal") return;
+    if (!room || (room.phase !== "reveal" && room.phase !== "compose")) return;
     if (socket.id !== clueGiverId(room)) return;
     room.spectrum = null;
     broadcast(room);

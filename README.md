@@ -7,8 +7,8 @@ from **1–20**, and you give a hint that fits that spot. Everyone else reads th
 spectrum + hint and **guesses the number**. Closest guesses score; the clue-giver
 scores for getting people close. Highest individual score after the last round wins.
 
-Play with **2 or more**, on one device passed around or with everyone on their own
-phone or laptop over a live connection.
+Play with **2 to 10 players**, on one device passed around or with everyone on
+their own phone or laptop over a live connection.
 
 ## How it works
 
@@ -17,6 +17,7 @@ phone or laptop over a live connection.
    clue-gives once.)
 3. The **clue-giver** sets the spectrum — pick a **preset category** or write your
    own two ends — secretly sees a number 1–20, and types a hint (no numbers!).
+   Stuck on the current spectrum? Hit **Change category** right on your turn to swap it.
 4. Everyone else slides to pick a number 1–20.
 5. The reveal shows the target, each guess, points earned, and the live **standings**.
 6. **Next turn** passes the clue-giver role to the next player, round-robin.

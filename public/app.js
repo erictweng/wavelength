@@ -111,6 +111,7 @@ $("btn-lock").addEventListener("click", () => {
 $("btn-next").addEventListener("click", () => socket.emit("nextTurn"));
 $("btn-newgame").addEventListener("click", () => socket.emit("newGame"));
 $("btn-change-spectrum").addEventListener("click", () => socket.emit("changeSpectrum"));
+$("btn-change-compose").addEventListener("click", () => socket.emit("changeSpectrum"));
 $("btn-playagain").addEventListener("click", () => socket.emit("newGame"));
 
 /* ---- Chat ------------------------------------------------------------- */

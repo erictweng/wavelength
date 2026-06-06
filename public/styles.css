@@ -178,6 +178,8 @@ input::placeholder { color: #5b608c; }
 .secret-rating small { color: var(--muted); font-weight: 700; }
 
 .current-spectrum { background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; font-size: 18px; }
+.step-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.btn-tiny { padding: 6px 10px; font-size: 12px; }
 
 .waiting.tall { padding: 36px 0; }
 .small-labels { margin-top: 6px; opacity: 0.85; }

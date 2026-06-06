@@ -12,6 +12,28 @@ const expectedScore = (t, g) => {
 };
 
 (async () => {
+  // --- Player cap: room holds up to 10, rejects the 11th ---
+  const capHost = io(URL);
+  await once(capHost, "connect");
+  const capCreated = await new Promise((r) => capHost.emit("createRoom", { name: "P1" }, r));
+  const capCode = capCreated.code;
+  const extras = [];
+  for (let i = 2; i <= 10; i++) {
+    const s = io(URL);
+    await once(s, "connect");
+    const res = await new Promise((r) => s.emit("joinRoom", { code: capCode, name: "P" + i }, r));
+    assert(res.ok, "player " + i + " should join");
+    extras.push(s);
+  }
+  const eleventh = io(URL);
+  await once(eleventh, "connect");
+  const full = await new Promise((r) => eleventh.emit("joinRoom", { code: capCode, name: "P11" }, r));
+  assert.strictEqual(full.ok, false, "11th player should be rejected");
+  assert(/full/i.test(full.error), "expected a 'full' error, got: " + full.error);
+  console.log("Player cap: 10 joined, 11th rejected ✓");
+  [capHost, eleventh, ...extras].forEach((s) => s.close());
+  await sleep(80);
+
   const socks = [io(URL), io(URL), io(URL)];
   await Promise.all(socks.map((s) => once(s, "connect")));
   const st = [null, null, null];
@@ -51,9 +73,20 @@ const expectedScore = (t, g) => {
       if (i !== gi) assert.strictEqual(s.round.target, undefined, "target leaked to " + names[i]);
     });
 
-    // Submit: write spectrum only on the first (setup) turn; it persists after.
+    // On turn 2 (spectrum persists), test that a stuck clue-giver can change it
+    // mid-compose: it clears, the phase stays compose, and they rewrite the ends.
+    if (turn === 1) {
+      assert.deepStrictEqual(st[0].spectrum, firstSpectrum, "spectrum should persist into turn 2");
+      socks[gi].emit("changeSpectrum");
+      await sleep(120);
+      assert.strictEqual(st[0].spectrum, null, "compose-time change should clear spectrum");
+      assert.strictEqual(st[0].phase, "compose", "should stay in compose after change");
+      console.log("Compose-time spectrum change works ✓");
+    }
+
+    // Submit: write spectrum only on a setup turn (none set); it persists after.
     const payload = { hint: "hint-" + turn };
-    if (!gState.spectrum) { payload.leftLabel = "Cold"; payload.rightLabel = "Hot"; }
+    if (!st[gi].spectrum) { payload.leftLabel = "Cold"; payload.rightLabel = "Hot"; }
     const sub = await new Promise((r) => socks[gi].emit("submitRound", payload, r));
     assert(sub.ok, "submit failed turn " + turn + ": " + JSON.stringify(sub));
     await sleep(120);
