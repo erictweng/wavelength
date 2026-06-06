@@ -1,115 +1,119 @@
-// End-to-end test for written-spectrum / 1-20 target mode. 2 players:
-// start -> A composes spectrum + hint (sees target) -> B guesses -> reveal ->
-// swap roles -> new game. Verifies target is sent ONLY to the clue-giver.
+// End-to-end test: round-robin, per-player + clue-giver scoring, fixed rounds,
+// persistent spectrum, target hidden from guessers. Uses 3 players, 1 round.
 const { io } = require("socket.io-client");
 const assert = require("assert");
 const URL = "http://localhost:3000";
 const once = (s, e) => new Promise((r) => s.once(e, r));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function expectedScore(target, guess) {
-  const d = Math.abs(target - guess);
-  if (d === 0) return 4; if (d === 1) return 3; if (d === 2) return 2; if (d === 3) return 1;
-  return 0;
-}
+const expectedScore = (t, g) => {
+  const d = Math.abs(t - g);
+  return d === 0 ? 4 : d === 1 ? 3 : d === 2 ? 2 : d === 3 ? 1 : 0;
+};
 
 (async () => {
-  const A = io(URL), B = io(URL);
-  await Promise.all([once(A, "connect"), once(B, "connect")]);
-  let sa = null, sb = null;
-  A.on("state", (s) => (sa = s));
-  B.on("state", (s) => (sb = s));
+  const socks = [io(URL), io(URL), io(URL)];
+  await Promise.all(socks.map((s) => once(s, "connect")));
+  const st = [null, null, null];
+  socks.forEach((s, i) => s.on("state", (x) => (st[i] = x)));
+  const names = ["Alice", "Bob", "Cara"];
 
-  const created = await new Promise((r) => A.emit("createRoom", { name: "Alice" }, r));
-  assert(created.ok); const code = created.code;
-  const joined = await new Promise((r) => B.emit("joinRoom", { code, name: "Bob" }, r));
-  assert(joined.ok, JSON.stringify(joined));
-  await sleep(120);
-  assert.strictEqual(sa.phase, "lobby");
-  console.log("Lobby ready ✓");
+  const created = await new Promise((r) => socks[0].emit("createRoom", { name: names[0] }, r));
+  const code = created.code;
+  await new Promise((r) => socks[1].emit("joinRoom", { code, name: names[1] }, r));
+  await new Promise((r) => socks[2].emit("joinRoom", { code, name: names[2] }, r));
+  await sleep(140);
+  assert.strictEqual(st[0].phase, "lobby");
+  assert.strictEqual(st[0].players.length, 3);
+  console.log("Lobby: 3 players ✓");
 
-  // Start the game (any player).
-  const started = await new Promise((r) => B.emit("startGame", {}, r));
+  // Host starts a 1-round game.
+  const started = await new Promise((r) => socks[0].emit("startGame", { rounds: 1 }, r));
   assert(started.ok, JSON.stringify(started));
+  await sleep(140);
+  assert.strictEqual(st[0].phase, "compose");
+  assert.strictEqual(st[0].roundsTarget, 1);
+
+  const giverIdx = (s) => socks.findIndex((_, i) => st[i] && st[i].youAreGiver);
+  const sockById = (id) => socks[st.findIndex((x) => x && x.you === id)];
+
+  // Play one full round = 3 turns (each player clue-gives once).
+  let firstSpectrum = null;
+  for (let turn = 0; turn < 3; turn++) {
+    assert.strictEqual(st[0].phase, "compose", "expected compose at turn " + turn);
+    const gi = giverIdx();
+    const gState = st[gi];
+    const target = gState.round.target;
+    assert(target >= 1 && target <= 20, "bad target");
+
+    // Every non-giver must NOT see the target.
+    st.forEach((s, i) => {
+      if (i !== gi) assert.strictEqual(s.round.target, undefined, "target leaked to " + names[i]);
+    });
+
+    // Submit: write spectrum only on the first (setup) turn; it persists after.
+    const payload = { hint: "hint-" + turn };
+    if (!gState.spectrum) { payload.leftLabel = "Cold"; payload.rightLabel = "Hot"; }
+    const sub = await new Promise((r) => socks[gi].emit("submitRound", payload, r));
+    assert(sub.ok, "submit failed turn " + turn + ": " + JSON.stringify(sub));
+    await sleep(120);
+    assert.strictEqual(st[0].phase, "guess");
+
+    if (turn === 0) { firstSpectrum = st[0].spectrum; assert.deepStrictEqual(firstSpectrum, { leftLabel: "Cold", rightLabel: "Hot" }); }
+    else assert.deepStrictEqual(st[0].spectrum, firstSpectrum, "spectrum should persist across turns");
+
+    // The two guessers lock: one exact (+4, counts for giver), one far (+0).
+    const guessers = st[gi].guesserIds;
+    await new Promise((r) => sockById(guessers[0]).emit("lockGuess", { value: target }, r));      // exact
+    const far = target <= 10 ? 20 : 1;
+    await new Promise((r) => sockById(guessers[1]).emit("lockGuess", { value: far }, r));          // miss
+    await sleep(160);
+    assert.strictEqual(st[0].phase, "reveal", "expected reveal turn " + turn);
+
+    const r = st[0].round;
+    assert.strictEqual(r.results.length, 2, "expected 2 guesser results");
+    // Giver earns +1 per guesser who scored. Exact scores, far (>=4 off) scores 0.
+    const expGiver = r.results.filter((x) => x.score > 0).length;
+    assert.strictEqual(r.giverScore, expGiver, "giverScore wrong");
+    assert.strictEqual(r.giverScore, 1, "exactly one guesser should have scored");
+    console.log(`Turn ${turn + 1}: giver ${gState.clueGiverName} target ${target} -> giver +${r.giverScore}, results ok ✓`);
+
+    if (turn < 2) {
+      socks[0].emit("nextTurn");
+      await sleep(150);
+    }
+  }
+
+  // After the 3rd turn of round 1, advancing should end the game.
+  socks[0].emit("nextTurn");
+  await sleep(160);
+  assert.strictEqual(st[0].phase, "gameover", "game should be over after 1 round");
+  console.log("Game over after 1 full round ✓");
+
+  // Score check: each player clue-gave once (+1) and guessed twice.
+  // Over 3 turns: each turn one exact (+4) and one miss (+0); giver +1.
+  // Total points distributed = 3 turns * (4 + 0 + 1) = 15.
+  const total = st[0].players.reduce((a, p) => a + p.score, 0);
+  assert.strictEqual(total, 15, "total points mismatch: " + total);
+  const sorted = st[0].players.slice().sort((a, b) => b.score - a.score);
+  console.log("Final standings:", sorted.map((p) => `${p.name}:${p.score}`).join(", "), "✓");
+
+  // Chat still works.
+  socks[1].emit("chat", { text: "ggs" });
   await sleep(120);
-  assert.strictEqual(sa.phase, "compose");
+  assert.strictEqual(st[2].messages.at(-1).text, "ggs");
+  assert.strictEqual(st[2].messages.at(-1).name, "Bob");
+  console.log("Chat broadcast ✓");
 
-  const giverIsA = sa.youAreGiver;
-  const giverState = giverIsA ? sa : sb;
-  const guesserState = giverIsA ? sb : sa;
-  const giverSock = giverIsA ? A : B;
-  const guesserSock = giverIsA ? B : A;
-
-  // Target must be 1-20 and visible only to the clue-giver.
-  const target = giverState.round.target;
-  assert(Number.isInteger(target) && target >= 1 && target <= 20, "bad target " + target);
-  assert.strictEqual(guesserState.round.target, undefined, "TARGET LEAKED to guesser!");
-  console.log("Compose: clue-giver is", giverState.clueGiverName, "| secret target", target, "(hidden from guesser ✓)");
-
-  // Guesser shouldn't even have the spectrum ends yet (giver still composing).
-  assert.strictEqual(guesserState.round.leftLabel, null, "spectrum leaked before submit");
-
-  // Clue-giver submits spectrum + hint.
-  const sub = await new Promise((r) =>
-    giverSock.emit("submitRound", { leftLabel: "Cold", rightLabel: "Hot", hint: "a warm mug" }, r)
-  );
-  assert(sub.ok, JSON.stringify(sub));
-  await sleep(120);
-  assert.strictEqual(sa.phase, "guess");
-  const gs = giverIsA ? sb : sa; // guesser state now
-  assert.strictEqual(gs.round.leftLabel, "Cold");
-  assert.strictEqual(gs.round.rightLabel, "Hot");
-  assert.strictEqual(gs.round.hint, "a warm mug");
-  assert.strictEqual(gs.round.target, undefined, "target leaked during guess!");
-  console.log("Spectrum + hint delivered, target still hidden ✓");
-
-  // Guesser locks a number; test exact-hit scoring.
-  await new Promise((r) => guesserSock.emit("lockGuess", { value: target }, r));
+  // Play again resets to lobby with zeroed scores.
+  socks[0].emit("newGame");
   await sleep(150);
-  assert.strictEqual(sa.phase, "reveal");
-  const r = sa.round;
-  assert.strictEqual(r.results.length, 1);
-  assert.strictEqual(r.results[0].score, expectedScore(target, target)); // exact = 4
-  assert.strictEqual(r.results[0].score, 4, "exact guess should be 4 points");
-  assert.strictEqual(sa.totalScore, 4);
-  assert.strictEqual(sb.round.target, target, "everyone sees target at reveal");
-  console.log("Reveal: exact guess scored +4, total", sa.totalScore, "✓");
-
-  // Verify the score curve directly.
-  assert.deepStrictEqual(
-    [0, 1, 2, 3, 4].map((d) => expectedScore(10, 10 + d)),
-    [4, 3, 2, 1, 0],
-    "score curve mismatch"
-  );
-  console.log("Score curve 0/1/2/3/4 off -> 4/3/2/1/0 ✓");
-
-  // Next turn -> roles swap, fresh target, guesser can't see it.
-  A.emit("nextTurn");
-  await sleep(150);
-  assert.strictEqual(sa.phase, "compose");
-  assert.strictEqual(sa.turnNumber, 2);
-  assert.notStrictEqual(sa.youAreGiver, giverIsA, "roles did not swap");
-  const newGuesser = sa.youAreGiver ? sb : sa;
-  assert.strictEqual(newGuesser.round.target, undefined, "target leaked after swap");
-  console.log("Turn 2: roles swapped, new secret target hidden ✓ (giver now", sa.clueGiverName + ")");
-
-  // Chat broadcasts to everyone with sender name + text.
-  A.emit("chat", { text: "gg that was close" });
-  await sleep(120);
-  assert(Array.isArray(sb.messages), "no messages array");
-  const last = sb.messages[sb.messages.length - 1];
-  assert.strictEqual(last.text, "gg that was close", "chat text wrong");
-  assert.strictEqual(last.name, "Alice", "chat sender wrong");
-  console.log("Chat broadcast ✓ (" + last.name + ": " + last.text + ")");
-
-  // New game resets everything.
-  B.emit("newGame");
-  await sleep(150);
-  assert.strictEqual(sa.phase, "lobby");
-  assert.strictEqual(sa.totalScore, 0);
-  assert.strictEqual(sa.turnNumber, 0);
-  console.log("New game resets to lobby ✓");
+  assert.strictEqual(st[0].phase, "lobby");
+  assert.strictEqual(st[0].players.reduce((a, p) => a + p.score, 0), 0);
+  assert.strictEqual(st[0].spectrum, null);
+  console.log("Play again resets ✓");
 
   console.log("\nALL TESTS PASSED ✅");
-  A.close(); B.close(); process.exit(0);
+  socks.forEach((s) => s.close());
+  process.exit(0);
 })().catch((e) => { console.error("TEST FAILED ❌", e); process.exit(1); });

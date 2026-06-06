@@ -10,193 +10,211 @@
 </head>
 <body>
   <div id="app">
-    <!-- HOME ---------------------------------------------------------------->
-    <section id="screen-home" class="screen active">
-      <div class="card hero">
-        <h1 class="logo">Wave<span>length</span></h1>
-        <p class="tagline">Write a spectrum. One player sees a secret number from 1–20 and drops a hint. The other guesses the number. Then you swap.</p>
+    <!-- LEFT: game column -------------------------------------------------->
+    <div class="game-col">
+      <!-- HOME -->
+      <section id="screen-home" class="screen active">
+        <div class="card hero">
+          <h1 class="logo">Wave<span>length</span></h1>
+          <p class="tagline">Take turns as the clue-giver: you see a secret 1–20 number and drop a hint on a spectrum. Everyone else guesses the number. Most points after the last round wins.</p>
 
-        <label class="field">
-          <span>Your name</span>
-          <input id="home-name" maxlength="20" placeholder="e.g. Eric" autocomplete="off" />
-        </label>
-
-        <button id="btn-create" class="btn btn-primary btn-block">Create a game</button>
-
-        <div class="divider"><span>or join one</span></div>
-
-        <div class="join-row">
-          <input id="home-code" maxlength="4" placeholder="CODE" class="code-input" autocomplete="off" />
-          <button id="btn-join" class="btn btn-secondary">Join</button>
-        </div>
-
-        <p id="home-error" class="error" role="alert"></p>
-      </div>
-      <p class="footnote">Play with 2 or more, on one device or many.</p>
-    </section>
-
-    <!-- LOBBY --------------------------------------------------------------->
-    <section id="screen-lobby" class="screen">
-      <div class="card">
-        <div class="lobby-head">
-          <div>
-            <h2>Game lobby</h2>
-            <p class="muted">Share this code so friends can join.</p>
+          <label class="field">
+            <span>Your name</span>
+            <input id="home-name" maxlength="20" placeholder="e.g. Eric" autocomplete="off" />
+          </label>
+          <button id="btn-create" class="btn btn-primary btn-block">Create a game</button>
+          <div class="divider"><span>or join one</span></div>
+          <div class="join-row">
+            <input id="home-code" maxlength="4" placeholder="CODE" class="code-input" autocomplete="off" />
+            <button id="btn-join" class="btn btn-secondary">Join</button>
           </div>
-          <button id="room-code" class="code-chip" title="Click to copy">----</button>
+          <p id="home-error" class="error" role="alert"></p>
         </div>
+        <p class="footnote">Play with 2 or more, on one device or many.</p>
+      </section>
 
-        <div class="players-strip">
-          <span class="label">Players</span>
-          <ul id="lobby-players" class="player-chips"></ul>
-        </div>
-
-        <p id="lobby-hint" class="hint"></p>
-        <button id="btn-start" class="btn btn-primary btn-block">Start game</button>
-      </div>
-    </section>
-
-    <!-- COMPOSE (clue-giver writes spectrum + sees number + hints) ---------->
-    <section id="screen-compose" class="screen">
-      <div class="topbar">
-        <span id="compose-turn" class="pill">Turn 1</span>
-        <span class="scoreline">Score <b id="compose-score">0</b></span>
-      </div>
-
-      <!-- Clue-giver view -->
-      <div id="compose-giver-view" class="card guess-card">
-        <span class="role-kicker">You're the clue-giver 🔮</span>
-
-        <p class="step-label">1 · Write your spectrum</p>
-        <div class="spectrum-inputs">
-          <input id="left-input" maxlength="40" placeholder="Left end · e.g. Cold" autocomplete="off" />
-          <span class="arrows">⟷</span>
-          <input id="right-input" maxlength="40" placeholder="Right end · e.g. Hot" autocomplete="off" />
-        </div>
-
-        <p class="step-label">2 · Your secret target</p>
-        <div class="secret-rating big">
-          <span>Only you can see this</span>
-          <strong id="compose-target">—</strong>
-          <small>on a 1–20 scale</small>
-        </div>
-
-        <p class="step-label">3 · Give a hint that lands on that number</p>
-        <input id="hint-input" maxlength="60" placeholder="e.g. “a fresh cup of coffee”" autocomplete="off" />
-
-        <button id="btn-submit-round" class="btn btn-primary btn-block">Send to guessers</button>
-        <p id="compose-error" class="error"></p>
-      </div>
-
-      <!-- Guesser waiting view -->
-      <div id="compose-wait-view" class="card guess-card">
-        <div class="waiting tall">
-          <div class="spinner"></div>
-          <p id="compose-wait-text">Waiting for the clue-giver to set up the round…</p>
-        </div>
-      </div>
-    </section>
-
-    <!-- GUESS --------------------------------------------------------------->
-    <section id="screen-guess" class="screen">
-      <div class="topbar">
-        <span id="guess-turn" class="pill">Turn 1</span>
-        <span class="scoreline">Score <b id="guess-score">0</b></span>
-      </div>
-
-      <!-- Guesser view -->
-      <div id="guess-active-view" class="card guess-card">
-        <div class="hint-bubble center-bubble">
-          <span class="hint-from" id="hint-from">Hint</span>
-          <p id="hint-text">—</p>
-        </div>
-        <div class="spectrum">
-          <div class="spectrum-labels">
-            <span id="guess-left" class="lbl lbl-left"></span>
-            <span id="guess-right" class="lbl lbl-right"></span>
+      <!-- LOBBY -->
+      <section id="screen-lobby" class="screen">
+        <div class="card">
+          <div class="lobby-head">
+            <div>
+              <h2>Game lobby</h2>
+              <p class="muted">Share this code so friends can join.</p>
+            </div>
+            <button id="room-code" class="code-chip" title="Click to copy">----</button>
           </div>
-          <input id="slider" class="slider" type="range" min="1" max="20" step="1" value="10" />
-          <div class="slider-value" id="slider-value">10</div>
-          <div class="tick-row" id="tick-row"></div>
-        </div>
-        <button id="btn-lock" class="btn btn-primary btn-block">Lock in guess</button>
-      </div>
-
-      <!-- Clue-giver / locked-guesser waiting view -->
-      <div id="guess-wait-view" class="card guess-card">
-        <div class="hint-bubble center-bubble">
-          <span class="hint-from" id="guess-your-hint-from">The hint</span>
-          <p id="guess-your-hint">—</p>
-        </div>
-        <div class="spectrum-labels small-labels">
-          <span id="guess-left-2" class="lbl lbl-left"></span>
-          <span id="guess-right-2" class="lbl lbl-right"></span>
-        </div>
-        <div class="waiting">
-          <div class="spinner"></div>
-          <p id="guess-wait-text">Waiting for the guess…</p>
-        </div>
-      </div>
-    </section>
-
-    <!-- REVEAL -------------------------------------------------------------->
-    <section id="screen-reveal" class="screen">
-      <div class="topbar">
-        <span id="reveal-turn" class="pill">Turn 1</span>
-        <span class="scoreline">Score <b id="reveal-score">0</b></span>
-      </div>
-
-      <div class="card reveal-card">
-        <div class="hint-bubble center-bubble">
-          <span class="hint-from" id="reveal-hint-from">Hint</span>
-          <p id="reveal-hint">—</p>
-        </div>
-
-        <div class="reveal-spectrum">
-          <div class="spectrum-labels">
-            <span id="reveal-left" class="lbl lbl-left"></span>
-            <span id="reveal-right" class="lbl lbl-right"></span>
+          <div class="players-strip">
+            <span class="label">Players</span>
+            <ul id="lobby-players" class="player-chips"></ul>
           </div>
-          <div class="track" id="reveal-track">
-            <div class="ai-marker" id="target-marker"><span class="ai-flag" id="target-flag">★</span></div>
-            <div id="guess-markers"></div>
+          <label id="rounds-field" class="field">
+            <span>Number of rounds (everyone clue-gives once per round)</span>
+            <select id="rounds-select">
+              <option value="1">1 round</option>
+              <option value="2">2 rounds</option>
+              <option value="3" selected>3 rounds</option>
+              <option value="4">4 rounds</option>
+              <option value="5">5 rounds</option>
+            </select>
+          </label>
+          <p id="lobby-hint" class="hint"></p>
+          <button id="btn-start" class="btn btn-primary btn-block">Start game</button>
+        </div>
+      </section>
+
+      <!-- COMPOSE -->
+      <section id="screen-compose" class="screen">
+        <div class="topbar">
+          <span id="compose-round" class="pill">Round 1/3</span>
+          <span class="scoreline">You <b id="compose-score">0</b></span>
+        </div>
+        <div id="compose-giver-view" class="card guess-card">
+          <span class="role-kicker">Your turn — you're the clue-giver 🔮</span>
+
+          <div id="compose-setup">
+            <p class="step-label">Pick a preset or write your own spectrum</p>
+            <div id="preset-chips" class="preset-chips"></div>
+            <div class="spectrum-inputs">
+              <input id="left-input" maxlength="40" placeholder="Left end · e.g. Cold" autocomplete="off" />
+              <span class="arrows">⟷</span>
+              <input id="right-input" maxlength="40" placeholder="Right end · e.g. Hot" autocomplete="off" />
+            </div>
           </div>
-          <div class="track-scale"><span>1</span><span>10</span><span>20</span></div>
-        </div>
 
-        <div class="turn-score">
-          <span>This turn</span><b id="turn-score">+0</b>
-        </div>
+          <div id="compose-current" class="hidden">
+            <p class="step-label">Spectrum</p>
+            <div class="spectrum-labels current-spectrum">
+              <span id="compose-cur-left" class="lbl lbl-left"></span>
+              <span id="compose-cur-right" class="lbl lbl-right"></span>
+            </div>
+          </div>
 
-        <table class="results"><tbody id="results-body"></tbody></table>
+          <p class="step-label">Your secret target</p>
+          <div class="secret-rating big">
+            <span>Only you can see this</span>
+            <strong id="compose-target">—</strong>
+            <small>on a 1–20 scale</small>
+          </div>
 
-        <div class="reveal-actions">
-          <button id="btn-next" class="btn btn-primary">Next turn →</button>
-          <button id="btn-newgame" class="btn btn-ghost">New game</button>
+          <p class="step-label">Give a hint that lands on that number</p>
+          <input id="hint-input" maxlength="60" placeholder="e.g. “a fresh cup of coffee”" autocomplete="off" />
+          <button id="btn-submit-round" class="btn btn-primary btn-block">Send to guessers</button>
+          <p id="compose-error" class="error"></p>
         </div>
-        <p id="reveal-next-info" class="muted center"></p>
+        <div id="compose-wait-view" class="card guess-card">
+          <div class="waiting tall">
+            <div class="spinner"></div>
+            <p id="compose-wait-text">Waiting for the clue-giver…</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- GUESS -->
+      <section id="screen-guess" class="screen">
+        <div class="topbar">
+          <span id="guess-round" class="pill">Round 1/3</span>
+          <span class="scoreline">You <b id="guess-score">0</b></span>
+        </div>
+        <div id="guess-active-view" class="card guess-card">
+          <div class="hint-bubble center-bubble">
+            <span class="hint-from" id="hint-from">Hint</span>
+            <p id="hint-text">—</p>
+          </div>
+          <div class="spectrum">
+            <div class="spectrum-labels">
+              <span id="guess-left" class="lbl lbl-left"></span>
+              <span id="guess-right" class="lbl lbl-right"></span>
+            </div>
+            <input id="slider" class="slider" type="range" min="1" max="20" step="1" value="10" />
+            <div class="slider-value" id="slider-value">10</div>
+            <div class="tick-row" id="tick-row"></div>
+          </div>
+          <button id="btn-lock" class="btn btn-primary btn-block">Lock in guess</button>
+        </div>
+        <div id="guess-wait-view" class="card guess-card">
+          <div class="hint-bubble center-bubble">
+            <span class="hint-from" id="guess-your-hint-from">The hint</span>
+            <p id="guess-your-hint">—</p>
+          </div>
+          <div class="spectrum-labels small-labels">
+            <span id="guess-left-2" class="lbl lbl-left"></span>
+            <span id="guess-right-2" class="lbl lbl-right"></span>
+          </div>
+          <div class="waiting">
+            <div class="spinner"></div>
+            <p id="guess-wait-text">Waiting for the guess…</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- REVEAL -->
+      <section id="screen-reveal" class="screen">
+        <div class="topbar">
+          <span id="reveal-round" class="pill">Round 1/3</span>
+          <span class="scoreline">You <b id="reveal-score">0</b></span>
+        </div>
+        <div class="card reveal-card">
+          <div class="hint-bubble center-bubble">
+            <span class="hint-from" id="reveal-hint-from">Hint</span>
+            <p id="reveal-hint">—</p>
+          </div>
+          <div class="reveal-spectrum">
+            <div class="spectrum-labels">
+              <span id="reveal-left" class="lbl lbl-left"></span>
+              <span id="reveal-right" class="lbl lbl-right"></span>
+            </div>
+            <div class="track" id="reveal-track">
+              <div class="ai-marker" id="target-marker"><span class="ai-flag" id="target-flag">★</span></div>
+              <div id="guess-markers"></div>
+            </div>
+            <div class="track-scale"><span>1</span><span>10</span><span>20</span></div>
+          </div>
+
+          <p class="giver-earned" id="giver-earned"></p>
+          <table class="results"><tbody id="results-body"></tbody></table>
+
+          <div class="leaderboard">
+            <span class="lb-title">Standings</span>
+            <ol id="leaderboard-list"></ol>
+          </div>
+
+          <div class="reveal-actions">
+            <button id="btn-next" class="btn btn-primary">Next turn →</button>
+            <button id="btn-newgame" class="btn btn-ghost">End game</button>
+          </div>
+          <button id="btn-change-spectrum" class="btn btn-ghost btn-small btn-block hidden">Change spectrum</button>
+          <p id="reveal-next-info" class="muted center"></p>
+        </div>
+      </section>
+
+      <!-- GAME OVER -->
+      <section id="screen-gameover" class="screen">
+        <div class="card hero">
+          <h2 class="logo small">🏆 <span id="winner-name">—</span> wins!</h2>
+          <p class="muted center" id="winner-sub"></p>
+          <div class="leaderboard final">
+            <ol id="final-leaderboard"></ol>
+          </div>
+          <button id="btn-playagain" class="btn btn-primary btn-block">Play again</button>
+        </div>
+      </section>
+    </div>
+
+    <!-- RIGHT: chat sidebar ------------------------------------------------->
+    <aside id="chat" class="chat hidden">
+      <div class="chat-head"><span>💬 Room chat</span></div>
+      <div id="chat-messages" class="chat-messages"></div>
+      <div class="chat-input-row">
+        <input id="chat-input" maxlength="200" placeholder="Say something…" autocomplete="off" />
+        <button id="chat-send" class="btn btn-secondary btn-small">Send</button>
       </div>
-    </section>
-
-    <!-- CHAT (persists across game screens once joined) --------------------->
-    <section id="chat" class="chat hidden">
-      <div class="chat-head">
-        <span>💬 Room chat</span>
-        <button id="chat-toggle" class="chat-toggle" title="Collapse">–</button>
-      </div>
-      <div id="chat-body" class="chat-body">
-        <div id="chat-messages" class="chat-messages"></div>
-        <div class="chat-input-row">
-          <input id="chat-input" maxlength="200" placeholder="Say something…" autocomplete="off" />
-          <button id="chat-send" class="btn btn-secondary btn-small">Send</button>
-        </div>
-      </div>
-    </section>
+    </aside>
   </div>
 
   <canvas id="fireworks"></canvas>
 
   <script src="/socket.io/socket.io.js"></script>
+  <script src="presets.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

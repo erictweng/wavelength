@@ -1,8 +1,9 @@
-// Wavelength — real-time multiplayer game server.
-// Each turn one player is the CLUE-GIVER: they write a spectrum (two ends),
-// secretly see a random target number from 1-20, and give a hint. Everyone else
-// guesses the number from the hint. Then roles rotate. The target is sent ONLY
-// to the clue-giver (and to everyone at reveal), so it can't be peeked.
+// Wavelength — real-time multiplayer game server (skribbl-style round robin).
+// Turns rotate through every player. On your turn you're the CLUE-GIVER: a
+// spectrum (persistent, written or picked from a preset) is in play, you secretly
+// see a random 1-20 target, and you give a hint. Everyone else guesses the number.
+// Guessers score by distance; the clue-giver scores +1 per guesser who scored.
+// Play runs a fixed number of rounds, then a winner screen.
 
 const path = require("path");
 const http = require("http");
@@ -17,6 +18,7 @@ app.use(express.static(path.join(__dirname, "public")));
 
 const SCALE_MIN = 1;
 const SCALE_MAX = 20;
+const MAX_ROUNDS = 10;
 
 /** @type {Map<string, any>} */
 const rooms = new Map();
@@ -38,7 +40,7 @@ function randomTarget() {
   return Math.floor(Math.random() * (SCALE_MAX - SCALE_MIN + 1)) + SCALE_MIN;
 }
 
-// Scoring: exact = 4, then step down by 1 per point of distance.
+// Guesser score: exact = 4, then -1 per point of distance, floor 0.
 function calculateScore(target, guess) {
   const distance = Math.abs(target - guess);
   if (distance === 0) return 4;
@@ -68,8 +70,6 @@ function findRoomBySocket(socketId) {
   return null;
 }
 
-// Per-viewer state. The target number goes ONLY to the clue-giver before reveal;
-// the spectrum ends and hint are shared once the clue-giver submits them.
 function publicState(room, viewerId) {
   const giver = clueGiverId(room);
   const guessers = guesserIds(room);
@@ -82,7 +82,8 @@ function publicState(room, viewerId) {
       name: p.name,
       connected: p.connected,
       isHost: p.id === room.hostId,
-      role: room.phase === "lobby" ? null : p.id === giver ? "clue" : "guesser",
+      score: p.score,
+      role: room.phase === "lobby" || room.phase === "gameover" ? null : p.id === giver ? "clue" : "guesser",
       hasGuessed: room.round ? room.round.guesses[p.id] != null : false,
     }));
 
@@ -96,9 +97,11 @@ function publicState(room, viewerId) {
     clueGiverName: giver && room.players[giver] ? room.players[giver].name : null,
     guesserIds: guessers,
     turnNumber: room.turnNumber,
-    totalScore: room.totalScore,
+    roundNumber: room.roundNumber,
+    roundsTarget: room.roundsTarget,
     scaleMin: SCALE_MIN,
     scaleMax: SCALE_MAX,
+    spectrum: room.spectrum || null,
     players,
     messages: room.messages || [],
   };
@@ -107,12 +110,7 @@ function publicState(room, viewerId) {
 
   const r = room.round;
   const submitted = room.phase === "guess" || room.phase === "reveal";
-  const round = {
-    // Spectrum ends are shared once submitted; before that only the giver knows.
-    leftLabel: submitted || viewerId === giver ? r.leftLabel : null,
-    rightLabel: submitted || viewerId === giver ? r.rightLabel : null,
-    hint: submitted ? r.hint : null,
-  };
+  const round = { hint: submitted ? r.hint : null };
 
   const canSeeTarget = room.phase === "reveal" || viewerId === giver;
   if (canSeeTarget) round.target = r.target;
@@ -131,7 +129,7 @@ function publicState(room, viewerId) {
           score: calculateScore(r.target, guess),
         };
       });
-    round.turnScore = r.turnScore;
+    round.giverScore = r.giverScore;
   }
 
   return { ...base, round };
@@ -145,16 +143,13 @@ function broadcast(room) {
   }
 }
 
-// Begin a turn: roll a fresh secret target and let the clue-giver compose.
 function startTurn(room) {
   room.turnNumber += 1;
   room.round = {
-    leftLabel: null,
-    rightLabel: null,
     hint: null,
     target: randomTarget(), // hidden — only the clue-giver receives it
     guesses: {},
-    turnScore: null,
+    giverScore: null,
   };
   room.phase = "compose";
   broadcast(room);
@@ -163,12 +158,15 @@ function startTurn(room) {
 function doReveal(room) {
   if (!room.round) return;
   const r = room.round;
-  let turnScore = 0;
+  const giver = clueGiverId(room);
+  let giverScore = 0;
   for (const id of Object.keys(r.guesses)) {
-    turnScore += calculateScore(r.target, r.guesses[id]);
+    const s = calculateScore(r.target, r.guesses[id]);
+    if (room.players[id]) room.players[id].score += s;
+    if (s > 0) giverScore += 1; // +1 per guesser who scored
   }
-  r.turnScore = turnScore;
-  room.totalScore += turnScore;
+  if (giver && room.players[giver]) room.players[giver].score += giverScore;
+  r.giverScore = giverScore;
   room.phase = "reveal";
   broadcast(room);
 }
@@ -194,11 +192,13 @@ io.on("connection", (socket) => {
       order: [],
       turnIndex: 0,
       turnNumber: 0,
-      totalScore: 0,
+      roundNumber: 1,
+      roundsTarget: 3,
+      spectrum: null,
       round: null,
       messages: [],
     };
-    room.players[socket.id] = { id: socket.id, name: cleanName, connected: true };
+    room.players[socket.id] = { id: socket.id, name: cleanName, connected: true, score: 0 };
     room.order.push(socket.id);
     rooms.set(code, room);
     socket.join(code);
@@ -212,7 +212,7 @@ io.on("connection", (socket) => {
     if (!room) return cb && cb({ ok: false, error: "Room not found." });
     const cleanName = (name || "Player").toString().slice(0, 20).trim() || "Player";
     if (!room.players[socket.id]) {
-      room.players[socket.id] = { id: socket.id, name: cleanName, connected: true };
+      room.players[socket.id] = { id: socket.id, name: cleanName, connected: true, score: 0 };
       room.order.push(socket.id);
     }
     socket.join(code);
@@ -220,29 +220,39 @@ io.on("connection", (socket) => {
     broadcast(room);
   });
 
-  // Any player can start once there are at least 2 connected.
-  socket.on("startGame", (_payload, cb) => {
+  // Any player can start once there are 2+; host's chosen round count is used.
+  socket.on("startGame", ({ rounds } = {}, cb) => {
     const room = findRoomBySocket(socket.id);
     if (!room) return cb && cb({ ok: false, error: "No room." });
     if (connectedPlayers(room).length < 2)
       return cb && cb({ ok: false, error: "Need at least 2 players to start." });
+    let n = parseInt(rounds, 10);
+    if (!Number.isFinite(n)) n = 3;
+    room.roundsTarget = Math.max(1, Math.min(MAX_ROUNDS, n));
+    room.roundNumber = 1;
+    room.turnIndex = 0;
+    room.turnNumber = 0;
+    for (const id of Object.keys(room.players)) room.players[id].score = 0;
     cb && cb({ ok: true });
     startTurn(room);
   });
 
-  // Clue-giver submits their written spectrum + hint -> guessing phase.
+  // Clue-giver submits a hint (and the spectrum ends only on a setup turn).
   socket.on("submitRound", ({ leftLabel, rightLabel, hint }, cb) => {
     const room = findRoomBySocket(socket.id);
     if (!room || room.phase !== "compose") return;
     if (socket.id !== clueGiverId(room))
       return cb && cb({ ok: false, error: "Only the clue-giver sets the round." });
-    const left = (leftLabel || "").toString().slice(0, 40).trim();
-    const right = (rightLabel || "").toString().slice(0, 40).trim();
     const clue = (hint || "").toString().slice(0, 60).trim();
-    if (!left || !right) return cb && cb({ ok: false, error: "Fill in both ends of the spectrum." });
     if (!clue) return cb && cb({ ok: false, error: "Type a hint." });
-    room.round.leftLabel = left;
-    room.round.rightLabel = right;
+
+    if (!room.spectrum) {
+      const left = (leftLabel || "").toString().slice(0, 40).trim();
+      const right = (rightLabel || "").toString().slice(0, 40).trim();
+      if (!left || !right) return cb && cb({ ok: false, error: "Set both ends of the spectrum." });
+      room.spectrum = { leftLabel: left, rightLabel: right };
+    }
+
     room.round.hint = clue;
     room.phase = "guess";
     cb && cb({ ok: true });
@@ -252,7 +262,7 @@ io.on("connection", (socket) => {
   socket.on("lockGuess", ({ value }, cb) => {
     const room = findRoomBySocket(socket.id);
     if (!room || room.phase !== "guess") return;
-    if (!guesserIds(room).includes(socket.id)) return; // clue-giver can't guess
+    if (!guesserIds(room).includes(socket.id)) return;
     let v = Number(value);
     if (!Number.isFinite(v)) v = Math.round((SCALE_MIN + SCALE_MAX) / 2);
     v = Math.max(SCALE_MIN, Math.min(SCALE_MAX, Math.round(v)));
@@ -262,16 +272,32 @@ io.on("connection", (socket) => {
     maybeReveal(room);
   });
 
-  // Advance to next turn -> rotate clue-giver (roles swap).
+  // Current clue-giver clears the spectrum so the next clue-giver writes a new one.
+  socket.on("changeSpectrum", () => {
+    const room = findRoomBySocket(socket.id);
+    if (!room || room.phase !== "reveal") return;
+    if (socket.id !== clueGiverId(room)) return;
+    room.spectrum = null;
+    broadcast(room);
+  });
+
+  // Advance to next turn -> rotate clue-giver; end after the target rounds.
   socket.on("nextTurn", () => {
     const room = findRoomBySocket(socket.id);
     if (!room || room.phase !== "reveal") return;
     const n = connectedPlayers(room).length;
-    if (n >= 1) room.turnIndex = (room.turnIndex + 1) % n;
+    if (n < 1) return;
+    room.turnIndex = (room.turnIndex + 1) % n;
+    if (room.turnIndex === 0) room.roundNumber += 1; // completed a full cycle
+    if (room.roundNumber > room.roundsTarget) {
+      room.phase = "gameover";
+      room.round = null;
+      broadcast(room);
+      return;
+    }
     startTurn(room);
   });
 
-  // Room chat — available in any phase, including the lobby.
   socket.on("chat", ({ text }) => {
     const room = findRoomBySocket(socket.id);
     if (!room) return;
@@ -279,12 +305,7 @@ io.on("connection", (socket) => {
     if (!player) return;
     const clean = (text || "").toString().slice(0, 200).trim();
     if (!clean) return;
-    room.messages.push({
-      id: socket.id,
-      name: player.name,
-      text: clean,
-      ts: Date.now(),
-    });
+    room.messages.push({ id: socket.id, name: player.name, text: clean, ts: Date.now() });
     if (room.messages.length > 80) room.messages.shift();
     broadcast(room);
   });
@@ -294,9 +315,11 @@ io.on("connection", (socket) => {
     if (!room) return;
     room.phase = "lobby";
     room.round = null;
+    room.spectrum = null;
     room.turnIndex = 0;
     room.turnNumber = 0;
-    room.totalScore = 0;
+    room.roundNumber = 1;
+    for (const id of Object.keys(room.players)) room.players[id].score = 0;
     broadcast(room);
   });
 
@@ -319,7 +342,6 @@ io.on("connection", (socket) => {
       return;
     }
 
-    // If the clue-giver dropped mid-turn, fall back to the lobby.
     if ((room.phase === "compose" || room.phase === "guess") && !clueGiverId(room)) {
       room.phase = "lobby";
       room.round = null;

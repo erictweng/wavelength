@@ -1,37 +1,36 @@
 # Wavelength 🎯
 
-A fast, replayable party game inspired by *Wavelength*. Each turn one player —
-the **clue-giver** — writes a spectrum (two opposite ends, e.g. *Cold ⟷ Hot*),
-secretly sees a random target number from **1–20**, and gives a hint that fits
-that spot on the spectrum. Everyone else reads the spectrum and hint and **guesses
-the number**. The closer the guess, the more points the group scores. Then the
-clue-giver role rotates.
+A fast, replayable party game inspired by *Wavelength*, played free-for-all like
+skribbl.io. The **clue-giver** role rotates around the table. On your turn a
+spectrum is in play (e.g. *Cold ⟷ Hot*), you secretly see a random target number
+from **1–20**, and you give a hint that fits that spot. Everyone else reads the
+spectrum + hint and **guesses the number**. Closest guesses score; the clue-giver
+scores for getting people close. Highest individual score after the last round wins.
 
 Play with **2 or more**, on one device passed around or with everyone on their own
 phone or laptop over a live connection.
 
-## How a turn works
+## How it works
 
 1. A player creates a game and gets a 4-letter room code; friends join with it.
-2. Any player taps **Start**. One player is the clue-giver.
-3. The **clue-giver** writes the two ends of a spectrum, secretly sees a number
-   from 1–20, and types a hint (no numbers!) that lands on that spot.
-4. The **guessers** read the spectrum + hint and slide to pick a number 1–20.
-5. The reveal shows the target, every guess, how far off each was, and the points.
-6. **Next turn → roles swap** — the new clue-giver writes a fresh spectrum. It
-   keeps going until you hit **New game** to reset the score.
+2. The host picks the **number of rounds** and starts. (One round = everyone
+   clue-gives once.)
+3. The **clue-giver** sets the spectrum — pick a **preset category** or write your
+   own two ends — secretly sees a number 1–20, and types a hint (no numbers!).
+4. Everyone else slides to pick a number 1–20.
+5. The reveal shows the target, each guess, points earned, and the live **standings**.
+6. **Next turn** passes the clue-giver role to the next player, round-robin.
+7. The spectrum **persists** across turns until the current clue-giver taps
+   **Change spectrum**, handing the next clue-giver a blank one.
+8. After the final round, a **winner screen** shows the leaderboard. **Play again**
+   resets scores.
 
-With more than 2 players, the clue-giver role rotates each turn and everyone else
-guesses.
+**Extras:** an exact guess (0 off) sets off **fireworks**, and a live **chat**
+sidebar runs alongside the game the whole time.
 
-**Extras:** a nail-on-the-head exact guess (0 off) sets off **fireworks**, and
-there's a live **room chat** in every screen so players can talk, argue, and
-gloat in real time.
+### Scoring (individual — no teams)
 
-### Scoring
-
-Cooperative — the group works together. Based on how far the guess is from the
-secret target:
+**Guessers** score by how far their guess is from the secret target:
 
 | Off by | Points |
 |--------|--------|
@@ -41,8 +40,9 @@ secret target:
 | 3 | 1 |
 | 4+ | 0 |
 
-With multiple guessers, each guesser's points are added to a running group total.
-**New game** resets it.
+**The clue-giver** scores **+1 for every guesser who landed points** that turn
+(so if two people guessed close, the clue-giver gets +2). It rewards a hint that's
+clear enough to land but not a giveaway.
 
 ## Run it locally
 
@@ -76,11 +76,12 @@ a persistent Node process and WebSockets:
 ## Project layout
 
 ```
-server.js          Express + Socket.IO server: rooms, turn rotation, scoring (target hidden here)
-public/index.html  Screens: home, lobby, compose, guess, reveal
-public/styles.css  Styling
+server.js          Express + Socket.IO server: rooms, round-robin, scoring (target hidden here)
+public/index.html  Screens: home, lobby, compose, guess, reveal, gameover + chat sidebar
+public/styles.css  Styling (two-column layout)
 public/app.js      Client: live socket connection + rendering
-test-e2e.js        Scripted 2-player end-to-end test (run with `npm test`)
+public/presets.js  Preset spectrum categories for quick-pick
+test-e2e.js        Scripted 3-player end-to-end test (run with `npm test`)
 data/items.js      Deprecated, unused (the old AI item bank); safe to delete
 ```
 

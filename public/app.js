@@ -1,7 +1,7 @@
-/* Wavelength — client. Each turn the clue-giver writes a spectrum, secretly
-   sees a 1-20 target, and hints; everyone else guesses the number. The server
-   sends each player a tailored state — only the clue-giver receives the target
-   before reveal, so guessers never have the answer to peek at. */
+/* Wavelength — client. Round-robin: each turn one player is the clue-giver who
+   secretly sees a 1-20 target and hints; everyone else guesses. The server sends
+   each player a tailored state — only the clue-giver receives the target before
+   reveal. Individual scores, fixed rounds, persistent spectrum with presets. */
 
 const socket = io();
 
@@ -9,15 +9,14 @@ const state = {
   me: null,
   joined: false,
   data: null,
-  lockedTurn: null,    // turn we locked a guess for
-  submittedTurn: null, // turn we (as giver) submitted the round for
-  renderedTurn: null,  // for resetting inputs once per turn
-  chatCount: 0,        // messages currently rendered
-  firedTurn: null,     // last turn we launched fireworks for
+  lockedTurn: null,
+  renderedTurn: null,
+  chatCount: 0,
+  firedTurn: null,
 };
 
 const $ = (id) => document.getElementById(id);
-const screens = ["home", "lobby", "compose", "guess", "reveal"];
+const screens = ["home", "lobby", "compose", "guess", "reveal", "gameover"];
 const SMIN = 1, SMAX = 20;
 
 function showScreen(name) {
@@ -26,6 +25,7 @@ function showScreen(name) {
 function setError(id, msg) { $(id).textContent = msg || ""; }
 function show(el, on) { el.classList.toggle("hidden", !on); }
 function pct(v) { return ((v - SMIN) / (SMAX - SMIN)) * 100; }
+function myScore(d) { const me = d.players.find((p) => p.id === state.me); return me ? me.score : 0; }
 
 /* ---- Home ------------------------------------------------------------- */
 $("btn-create").addEventListener("click", () => {
@@ -38,7 +38,6 @@ $("btn-create").addEventListener("click", () => {
 });
 $("btn-join").addEventListener("click", joinGame);
 $("home-code").addEventListener("keydown", (e) => { if (e.key === "Enter") joinGame(); });
-
 function joinGame() {
   const name = $("home-name").value.trim();
   const code = $("home-code").value.trim().toUpperCase();
@@ -59,22 +58,43 @@ $("room-code").addEventListener("click", () => {
   el.textContent = "Copied!"; setTimeout(() => (el.textContent = prev), 900);
 });
 $("btn-start").addEventListener("click", () => {
-  socket.emit("startGame", {}, (res) => {
+  const rounds = Number($("rounds-select").value) || 3;
+  socket.emit("startGame", { rounds }, (res) => {
     if (!res || !res.ok) $("lobby-hint").textContent = (res && res.error) || "Could not start.";
   });
 });
 
-/* ---- Compose (clue-giver) --------------------------------------------- */
+/* ---- Compose ---------------------------------------------------------- */
 $("btn-submit-round").addEventListener("click", submitRound);
+$("hint-input").addEventListener("keydown", (e) => { if (e.key === "Enter") submitRound(); });
 function submitRound() {
-  const leftLabel = $("left-input").value.trim();
-  const rightLabel = $("right-input").value.trim();
   const hint = $("hint-input").value.trim();
-  if (!leftLabel || !rightLabel) return setError("compose-error", "Fill in both ends of the spectrum.");
   if (!hint) return setError("compose-error", "Type a hint.");
-  socket.emit("submitRound", { leftLabel, rightLabel, hint }, (res) => {
+  const payload = { hint };
+  if (!state.data || !state.data.spectrum) {
+    const leftLabel = $("left-input").value.trim();
+    const rightLabel = $("right-input").value.trim();
+    if (!leftLabel || !rightLabel) return setError("compose-error", "Set both ends of the spectrum.");
+    payload.leftLabel = leftLabel;
+    payload.rightLabel = rightLabel;
+  }
+  socket.emit("submitRound", payload, (res) => {
     if (!res || !res.ok) return setError("compose-error", (res && res.error) || "Could not send.");
-    state.submittedTurn = state.data ? state.data.turnNumber : null;
+  });
+}
+
+function buildPresets() {
+  const wrap = $("preset-chips");
+  if (wrap.childElementCount || !window.PRESETS) return;
+  window.PRESETS.forEach((p) => {
+    const b = document.createElement("button");
+    b.className = "preset-chip";
+    b.innerHTML = `<b>${escapeHtml(p.name)}</b><span>${escapeHtml(p.left)} ⟷ ${escapeHtml(p.right)}</span>`;
+    b.addEventListener("click", () => {
+      $("left-input").value = p.left;
+      $("right-input").value = p.right;
+    });
+    wrap.appendChild(b);
   });
 }
 
@@ -87,11 +107,13 @@ $("btn-lock").addEventListener("click", () => {
   render();
 });
 
-/* ---- Reveal ----------------------------------------------------------- */
+/* ---- Reveal / gameover ------------------------------------------------ */
 $("btn-next").addEventListener("click", () => socket.emit("nextTurn"));
 $("btn-newgame").addEventListener("click", () => socket.emit("newGame"));
+$("btn-change-spectrum").addEventListener("click", () => socket.emit("changeSpectrum"));
+$("btn-playagain").addEventListener("click", () => socket.emit("newGame"));
 
-/* ---- Chat -------------------------------------------------------------- */
+/* ---- Chat ------------------------------------------------------------- */
 $("chat-send").addEventListener("click", sendChat);
 $("chat-input").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
 function sendChat() {
@@ -100,22 +122,13 @@ function sendChat() {
   socket.emit("chat", { text });
   $("chat-input").value = "";
 }
-$("chat-toggle").addEventListener("click", () => {
-  const body = $("chat-body");
-  const collapsed = body.classList.toggle("collapsed");
-  $("chat-toggle").textContent = collapsed ? "+" : "–";
-});
-
 function renderChat(messages) {
   const list = $("chat-messages");
-  if (messages.length === state.chatCount) return; // nothing new
+  if (messages.length === state.chatCount) return;
   list.innerHTML = messages
     .map((m) => {
       const mine = m.id === state.me;
-      return `<div class="cmsg ${mine ? "mine" : ""}">
-        <span class="cname">${escapeHtml(m.name)}</span>
-        <span class="ctext">${escapeHtml(m.text)}</span>
-      </div>`;
+      return `<div class="cmsg ${mine ? "mine" : ""}"><span class="cname">${escapeHtml(m.name)}</span><span class="ctext">${escapeHtml(m.text)}</span></div>`;
     })
     .join("");
   state.chatCount = messages.length;
@@ -128,13 +141,16 @@ socket.on("state", (data) => { state.data = data; if (state.joined) render(); })
 function render() {
   const d = state.data;
   if (!d) return;
-  $("chat").classList.remove("hidden");          // chat visible once in a room
+  $("chat").classList.remove("hidden");
   renderChat(d.messages || []);
   if (d.phase === "lobby") return renderLobby(d);
   if (d.phase === "compose") return renderCompose(d);
   if (d.phase === "guess") return renderGuess(d);
   if (d.phase === "reveal") return renderReveal(d);
+  if (d.phase === "gameover") return renderGameover(d);
 }
+
+function roundLabel(d) { return `Round ${Math.min(d.roundNumber, d.roundsTarget)}/${d.roundsTarget}`; }
 
 function renderLobby(d) {
   showScreen("lobby");
@@ -143,14 +159,17 @@ function renderLobby(d) {
     .map((p) => `<li class="${p.connected ? "" : "off"}${p.id === state.me ? " you" : ""}">${escapeHtml(p.name)}${p.isHost ? " ⭐" : ""}</li>`)
     .join("");
   const enough = d.players.filter((p) => p.connected).length >= 2;
-  $("lobby-hint").textContent = enough ? "Everyone in? Tap start." : "Waiting for at least 2 players…";
+  $("lobby-hint").textContent = enough ? "Everyone in? Set rounds and start." : "Waiting for at least 2 players…";
+  const host = d.hostId === state.me;
+  show($("rounds-field"), host);
   $("btn-start").disabled = !enough;
+  $("btn-start").textContent = host ? "Start game" : "Waiting for host to start…";
 }
 
 function renderCompose(d) {
   showScreen("compose");
-  $("compose-turn").textContent = "Turn " + d.turnNumber;
-  $("compose-score").textContent = d.totalScore;
+  $("compose-round").textContent = roundLabel(d);
+  $("compose-score").textContent = myScore(d);
   if (state.renderedTurn !== d.turnNumber) { resetInputs(); state.renderedTurn = d.turnNumber; }
 
   const giver = d.youAreGiver;
@@ -158,39 +177,50 @@ function renderCompose(d) {
   show($("compose-wait-view"), !giver);
 
   if (giver) {
-    $("compose-target").textContent = d.round.target; // giver-only
+    const hasSpectrum = !!d.spectrum;
+    show($("compose-setup"), !hasSpectrum);
+    show($("compose-current"), hasSpectrum);
+    if (!hasSpectrum) buildPresets();
+    if (hasSpectrum) {
+      $("compose-cur-left").textContent = d.spectrum.leftLabel;
+      $("compose-cur-right").textContent = d.spectrum.rightLabel;
+    }
+    $("compose-target").textContent = d.round.target;
   } else {
-    $("compose-wait-text").textContent = `Waiting for ${d.clueGiverName} to set up the round…`;
+    const setup = !d.spectrum;
+    $("compose-wait-text").textContent = setup
+      ? `Waiting for ${d.clueGiverName} to pick a spectrum…`
+      : `${d.clueGiverName} is thinking of a hint…`;
   }
 }
 
 function renderGuess(d) {
   showScreen("guess");
-  $("guess-turn").textContent = "Turn " + d.turnNumber;
-  $("guess-score").textContent = d.totalScore;
+  $("guess-round").textContent = roundLabel(d);
+  $("guess-score").textContent = myScore(d);
 
   const giver = d.youAreGiver;
   const guesser = !giver;
   const locked = state.lockedTurn === d.turnNumber;
-
   show($("guess-active-view"), guesser && !locked);
   show($("guess-wait-view"), giver || locked);
 
+  const spec = d.spectrum || { leftLabel: "", rightLabel: "" };
   if (guesser && !locked) {
     if (!$("tick-row").childElementCount) buildTicks();
     $("hint-from").textContent = `${d.clueGiverName}'s hint`;
     $("hint-text").textContent = d.round.hint || "…";
-    $("guess-left").textContent = d.round.leftLabel;
-    $("guess-right").textContent = d.round.rightLabel;
+    $("guess-left").textContent = spec.leftLabel;
+    $("guess-right").textContent = spec.rightLabel;
   } else {
     $("guess-your-hint-from").textContent = giver ? "Your hint" : "The hint";
     $("guess-your-hint").textContent = d.round.hint || "…";
-    $("guess-left-2").textContent = d.round.leftLabel;
-    $("guess-right-2").textContent = d.round.rightLabel;
+    $("guess-left-2").textContent = spec.leftLabel;
+    $("guess-right-2").textContent = spec.rightLabel;
     const total = d.guesserIds.length;
     const done = d.players.filter((p) => d.guesserIds.includes(p.id) && p.hasGuessed).length;
     $("guess-wait-text").textContent = giver
-      ? `Waiting for the guess… (${done}/${total})`
+      ? `Waiting for guesses… (${done}/${total})`
       : `Locked in. Waiting for others… (${done}/${total})`;
   }
 }
@@ -198,25 +228,26 @@ function renderGuess(d) {
 function renderReveal(d) {
   showScreen("reveal");
   const r = d.round;
-  $("reveal-turn").textContent = "Turn " + d.turnNumber;
-  $("reveal-score").textContent = d.totalScore;
+  $("reveal-round").textContent = roundLabel(d);
+  $("reveal-score").textContent = myScore(d);
   $("reveal-hint-from").textContent = `${d.clueGiverName}'s hint`;
   $("reveal-hint").textContent = r.hint || "—";
-  $("reveal-left").textContent = r.leftLabel;
-  $("reveal-right").textContent = r.rightLabel;
+  const spec = d.spectrum || { leftLabel: "", rightLabel: "" };
+  $("reveal-left").textContent = spec.leftLabel;
+  $("reveal-right").textContent = spec.rightLabel;
 
   $("target-marker").style.left = pct(r.target) + "%";
   $("target-flag").textContent = "★ " + r.target;
 
   $("guess-markers").innerHTML = (r.results || [])
     .map(
-      (res) => `<div class="guess-marker" style="left:${pct(res.guess)}%" title="${escapeHtml(res.name)}: ${res.guess}">
-          <span class="gm-name">${escapeHtml(firstName(res.name))}</span>
-        </div>`
+      (res) => `<div class="guess-marker" style="left:${pct(res.guess)}%" title="${escapeHtml(res.name)}: ${res.guess}"><span class="gm-name">${escapeHtml(firstName(res.name))}</span></div>`
     )
     .join("");
 
-  $("turn-score").textContent = "+" + r.turnScore;
+  const n = r.giverScore || 0;
+  $("giver-earned").textContent = `${d.clueGiverName} (clue-giver) earned +${n} — ${n} ${n === 1 ? "player" : "players"} guessed close.`;
+
   $("results-body").innerHTML = (r.results || [])
     .slice()
     .sort((a, b) => a.distance - b.distance)
@@ -230,16 +261,41 @@ function renderReveal(d) {
     )
     .join("");
 
-  state.lockedTurn = null;
-  state.submittedTurn = null;
-  $("reveal-next-info").textContent = "Anyone can tap Next turn — the clue-giver role swaps.";
+  renderLeaderboard($("leaderboard-list"), d.players);
 
-  // Bullseye! Celebrate an exact guess (once per turn).
+  state.lockedTurn = null;
+  const changing = !d.spectrum;
+  show($("btn-change-spectrum"), d.youAreGiver && !changing);
+  $("reveal-next-info").textContent = changing
+    ? "New spectrum will be written next turn."
+    : "Tap Next turn — the clue-giver role passes on.";
+
   const bullseye = (r.results || []).some((res) => res.distance === 0);
   if (bullseye && state.firedTurn !== d.turnNumber) {
     state.firedTurn = d.turnNumber;
     launchFireworks(3200);
   }
+}
+
+function renderGameover(d) {
+  showScreen("gameover");
+  const sorted = d.players.slice().sort((a, b) => b.score - a.score);
+  const top = sorted[0];
+  $("winner-name").textContent = top ? top.name : "—";
+  $("winner-sub").textContent = top ? `with ${top.score} point${top.score === 1 ? "" : "s"}` : "";
+  renderLeaderboard($("final-leaderboard"), d.players);
+  if (state.firedTurn !== "gameover") { state.firedTurn = "gameover"; launchFireworks(4000); }
+}
+
+function renderLeaderboard(ol, players) {
+  const sorted = players.slice().sort((a, b) => b.score - a.score);
+  ol.innerHTML = sorted
+    .map((p, i) => `<li class="${p.id === state.me ? "you" : ""}">
+        <span class="lb-rank">${i === 0 ? "👑" : i + 1}</span>
+        <span class="lb-name">${escapeHtml(p.name)}${p.connected ? "" : " (left)"}</span>
+        <span class="lb-score">${p.score}</span>
+      </li>`)
+    .join("");
 }
 
 function buildTicks() {
@@ -251,7 +307,6 @@ function buildTicks() {
     row.appendChild(s);
   }
 }
-
 function resetInputs() {
   slider.value = 10;
   $("slider-value").textContent = "10";
@@ -266,68 +321,40 @@ function launchFireworks(durationMs) {
   const canvas = $("fireworks");
   const ctx = canvas.getContext("2d");
   const dpr = window.devicePixelRatio || 1;
-  function size() {
-    canvas.width = window.innerWidth * dpr;
-    canvas.height = window.innerHeight * dpr;
-  }
+  function size() { canvas.width = window.innerWidth * dpr; canvas.height = window.innerHeight * dpr; }
   size();
   window.addEventListener("resize", size);
   canvas.classList.add("active");
-
   const W = () => canvas.width, H = () => canvas.height;
   const colors = ["#ffd166", "#6c5ce7", "#4cc9f0", "#ff7b72", "#51cf66", "#ffffff"];
   let particles = [];
   const start = performance.now();
   let lastBurst = 0;
-
   function burst(x, y) {
-    const n = 60 + Math.floor(Math.random() * 40);
+    const num = 60 + Math.floor(Math.random() * 40);
     const color = colors[Math.floor(Math.random() * colors.length)];
-    for (let i = 0; i < n; i++) {
-      const angle = (Math.PI * 2 * i) / n + Math.random() * 0.3;
+    for (let i = 0; i < num; i++) {
+      const angle = (Math.PI * 2 * i) / num + Math.random() * 0.3;
       const speed = (2 + Math.random() * 4) * dpr;
-      particles.push({
-        x, y,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        life: 1,
-        decay: 0.012 + Math.random() * 0.012,
-        color,
-        size: (1.5 + Math.random() * 2) * dpr,
-      });
+      particles.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 1, decay: 0.012 + Math.random() * 0.012, color, size: (1.5 + Math.random() * 2) * dpr });
     }
   }
-
   function frame(now) {
     const elapsed = now - start;
     ctx.clearRect(0, 0, W(), H());
-
     if (elapsed < durationMs && now - lastBurst > 320) {
       lastBurst = now;
       burst(W() * (0.2 + Math.random() * 0.6), H() * (0.2 + Math.random() * 0.4));
     }
-
     particles.forEach((p) => {
-      p.vy += 0.04 * dpr;      // gravity
-      p.vx *= 0.99;
-      p.x += p.vx;
-      p.y += p.vy;
-      p.life -= p.decay;
-      ctx.globalAlpha = Math.max(0, p.life);
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-      ctx.fill();
+      p.vy += 0.04 * dpr; p.vx *= 0.99; p.x += p.vx; p.y += p.vy; p.life -= p.decay;
+      ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
     });
     particles = particles.filter((p) => p.life > 0);
     ctx.globalAlpha = 1;
-
-    if (elapsed < durationMs || particles.length) {
-      requestAnimationFrame(frame);
-    } else {
-      canvas.classList.remove("active");
-      window.removeEventListener("resize", size);
-    }
+    if (elapsed < durationMs || particles.length) requestAnimationFrame(frame);
+    else { canvas.classList.remove("active"); window.removeEventListener("resize", size); }
   }
   requestAnimationFrame(frame);
 }
