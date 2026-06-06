@@ -24,6 +24,10 @@ phone or laptop over a live connection.
 With more than 2 players, the clue-giver role rotates each turn and everyone else
 guesses.
 
+**Extras:** a nail-on-the-head exact guess (0 off) sets off **fireworks**, and
+there's a live **room chat** in every screen so players can talk, argue, and
+gloat in real time.
+
 ### Scoring
 
 Cooperative — the group works together. Based on how far the guess is from the

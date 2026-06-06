@@ -100,6 +100,7 @@ function publicState(room, viewerId) {
     scaleMin: SCALE_MIN,
     scaleMax: SCALE_MAX,
     players,
+    messages: room.messages || [],
   };
 
   if (!room.round) return base;
@@ -195,6 +196,7 @@ io.on("connection", (socket) => {
       turnNumber: 0,
       totalScore: 0,
       round: null,
+      messages: [],
     };
     room.players[socket.id] = { id: socket.id, name: cleanName, connected: true };
     room.order.push(socket.id);
@@ -267,6 +269,24 @@ io.on("connection", (socket) => {
     const n = connectedPlayers(room).length;
     if (n >= 1) room.turnIndex = (room.turnIndex + 1) % n;
     startTurn(room);
+  });
+
+  // Room chat — available in any phase, including the lobby.
+  socket.on("chat", ({ text }) => {
+    const room = findRoomBySocket(socket.id);
+    if (!room) return;
+    const player = room.players[socket.id];
+    if (!player) return;
+    const clean = (text || "").toString().slice(0, 200).trim();
+    if (!clean) return;
+    room.messages.push({
+      id: socket.id,
+      name: player.name,
+      text: clean,
+      ts: Date.now(),
+    });
+    if (room.messages.length > 80) room.messages.shift();
+    broadcast(room);
   });
 
   socket.on("newGame", () => {

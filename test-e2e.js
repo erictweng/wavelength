@@ -93,6 +93,15 @@ function expectedScore(target, guess) {
   assert.strictEqual(newGuesser.round.target, undefined, "target leaked after swap");
   console.log("Turn 2: roles swapped, new secret target hidden ✓ (giver now", sa.clueGiverName + ")");
 
+  // Chat broadcasts to everyone with sender name + text.
+  A.emit("chat", { text: "gg that was close" });
+  await sleep(120);
+  assert(Array.isArray(sb.messages), "no messages array");
+  const last = sb.messages[sb.messages.length - 1];
+  assert.strictEqual(last.text, "gg that was close", "chat text wrong");
+  assert.strictEqual(last.name, "Alice", "chat sender wrong");
+  console.log("Chat broadcast ✓ (" + last.name + ": " + last.text + ")");
+
   // New game resets everything.
   B.emit("newGame");
   await sleep(150);

@@ -12,6 +12,8 @@ const state = {
   lockedTurn: null,    // turn we locked a guess for
   submittedTurn: null, // turn we (as giver) submitted the round for
   renderedTurn: null,  // for resetting inputs once per turn
+  chatCount: 0,        // messages currently rendered
+  firedTurn: null,     // last turn we launched fireworks for
 };
 
 const $ = (id) => document.getElementById(id);
@@ -89,12 +91,45 @@ $("btn-lock").addEventListener("click", () => {
 $("btn-next").addEventListener("click", () => socket.emit("nextTurn"));
 $("btn-newgame").addEventListener("click", () => socket.emit("newGame"));
 
+/* ---- Chat -------------------------------------------------------------- */
+$("chat-send").addEventListener("click", sendChat);
+$("chat-input").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
+function sendChat() {
+  const text = $("chat-input").value.trim();
+  if (!text) return;
+  socket.emit("chat", { text });
+  $("chat-input").value = "";
+}
+$("chat-toggle").addEventListener("click", () => {
+  const body = $("chat-body");
+  const collapsed = body.classList.toggle("collapsed");
+  $("chat-toggle").textContent = collapsed ? "+" : "–";
+});
+
+function renderChat(messages) {
+  const list = $("chat-messages");
+  if (messages.length === state.chatCount) return; // nothing new
+  list.innerHTML = messages
+    .map((m) => {
+      const mine = m.id === state.me;
+      return `<div class="cmsg ${mine ? "mine" : ""}">
+        <span class="cname">${escapeHtml(m.name)}</span>
+        <span class="ctext">${escapeHtml(m.text)}</span>
+      </div>`;
+    })
+    .join("");
+  state.chatCount = messages.length;
+  list.scrollTop = list.scrollHeight;
+}
+
 /* ---- State pump ------------------------------------------------------- */
 socket.on("state", (data) => { state.data = data; if (state.joined) render(); });
 
 function render() {
   const d = state.data;
   if (!d) return;
+  $("chat").classList.remove("hidden");          // chat visible once in a room
+  renderChat(d.messages || []);
   if (d.phase === "lobby") return renderLobby(d);
   if (d.phase === "compose") return renderCompose(d);
   if (d.phase === "guess") return renderGuess(d);
@@ -198,6 +233,13 @@ function renderReveal(d) {
   state.lockedTurn = null;
   state.submittedTurn = null;
   $("reveal-next-info").textContent = "Anyone can tap Next turn — the clue-giver role swaps.";
+
+  // Bullseye! Celebrate an exact guess (once per turn).
+  const bullseye = (r.results || []).some((res) => res.distance === 0);
+  if (bullseye && state.firedTurn !== d.turnNumber) {
+    state.firedTurn = d.turnNumber;
+    launchFireworks(3200);
+  }
 }
 
 function buildTicks() {
@@ -217,6 +259,77 @@ function resetInputs() {
   $("right-input").value = "";
   $("hint-input").value = "";
   setError("compose-error", "");
+}
+
+/* ---- Fireworks --------------------------------------------------------- */
+function launchFireworks(durationMs) {
+  const canvas = $("fireworks");
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  function size() {
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
+  }
+  size();
+  window.addEventListener("resize", size);
+  canvas.classList.add("active");
+
+  const W = () => canvas.width, H = () => canvas.height;
+  const colors = ["#ffd166", "#6c5ce7", "#4cc9f0", "#ff7b72", "#51cf66", "#ffffff"];
+  let particles = [];
+  const start = performance.now();
+  let lastBurst = 0;
+
+  function burst(x, y) {
+    const n = 60 + Math.floor(Math.random() * 40);
+    const color = colors[Math.floor(Math.random() * colors.length)];
+    for (let i = 0; i < n; i++) {
+      const angle = (Math.PI * 2 * i) / n + Math.random() * 0.3;
+      const speed = (2 + Math.random() * 4) * dpr;
+      particles.push({
+        x, y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 1,
+        decay: 0.012 + Math.random() * 0.012,
+        color,
+        size: (1.5 + Math.random() * 2) * dpr,
+      });
+    }
+  }
+
+  function frame(now) {
+    const elapsed = now - start;
+    ctx.clearRect(0, 0, W(), H());
+
+    if (elapsed < durationMs && now - lastBurst > 320) {
+      lastBurst = now;
+      burst(W() * (0.2 + Math.random() * 0.6), H() * (0.2 + Math.random() * 0.4));
+    }
+
+    particles.forEach((p) => {
+      p.vy += 0.04 * dpr;      // gravity
+      p.vx *= 0.99;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.life -= p.decay;
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    particles = particles.filter((p) => p.life > 0);
+    ctx.globalAlpha = 1;
+
+    if (elapsed < durationMs || particles.length) {
+      requestAnimationFrame(frame);
+    } else {
+      canvas.classList.remove("active");
+      window.removeEventListener("resize", size);
+    }
+  }
+  requestAnimationFrame(frame);
 }
 
 /* ---- utils ------------------------------------------------------------ */

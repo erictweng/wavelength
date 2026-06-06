@@ -177,7 +177,24 @@
         <p id="reveal-next-info" class="muted center"></p>
       </div>
     </section>
+
+    <!-- CHAT (persists across game screens once joined) --------------------->
+    <section id="chat" class="chat hidden">
+      <div class="chat-head">
+        <span>💬 Room chat</span>
+        <button id="chat-toggle" class="chat-toggle" title="Collapse">–</button>
+      </div>
+      <div id="chat-body" class="chat-body">
+        <div id="chat-messages" class="chat-messages"></div>
+        <div class="chat-input-row">
+          <input id="chat-input" maxlength="200" placeholder="Say something…" autocomplete="off" />
+          <button id="chat-send" class="btn btn-secondary btn-small">Send</button>
+        </div>
+      </div>
+    </section>
   </div>
+
+  <canvas id="fireworks"></canvas>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="app.js"></script>
